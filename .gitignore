@@ -1,0 +1,33 @@
+# NCU 报告文件
+*.ncu-rep
+*.csv
+*.nsys-rep
+
+# 分析输出
+ncu_reports/
+analysis_output/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 测试目录
+/tmp/
+/test-install/
