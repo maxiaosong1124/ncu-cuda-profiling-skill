@@ -26,11 +26,18 @@
 git clone https://github.com/maxiaosong1124/ncu-cuda-profiling-skill.git
 cd ncu-cuda-profiling-skill
 
-# 一键安装到系统
+# 一键安装（默认安装到 Kimi Code CLI）
 ./install.sh
 
-# 或者安装到指定目录（适用于 Kimi Code CLI 等 Agent 环境）
-./install.sh --target ~/.config/agents/skills/
+# 或安装到特定的 AI Agent
+./install.sh --kimi      # Kimi Code CLI
+./install.sh --claude    # Claude Code
+./install.sh --cursor    # Cursor
+./install.sh --codex     # Codex
+./install.sh --all-agents # 全部安装
+
+# 查看所有选项
+./install.sh --help
 ```
 
 ### 方式二：手动安装

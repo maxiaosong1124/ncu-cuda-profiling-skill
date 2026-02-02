@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # NCU CUDA Profiling Skill - 一键安装脚本
-# 支持系统级安装和用户级安装
+# 支持系统级安装、用户级安装和多 AI Agent 安装
 #
 
 set -e
@@ -16,6 +16,12 @@ NC='\033[0m' # No Color
 # 默认安装路径
 DEFAULT_SYSTEM_PATH="/opt/ncu-cuda-profiling-skill"
 DEFAULT_USER_PATH="$HOME/.config/agents/skills/ncu-cuda-profiling"
+
+# AI Agent 安装路径
+KIMI_PATH="$HOME/.config/agents/skills/ncu-cuda-profiling"
+CLAUDE_PATH="$HOME/.claude/skills/ncu-cuda-profiling"
+CURSOR_PATH="$HOME/.cursor/rules/ncu-cuda-profiling"
+CODEX_PATH="$HOME/.codex/skills/ncu-cuda-profiling"
 
 # 脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,12 +54,23 @@ NCU CUDA Profiling Skill 安装脚本
     -h, --help              显示帮助信息
     -t, --target PATH       指定安装目录
     -s, --system            系统级安装 (需要 sudo)
-    -u, --user              用户级安装 (默认)
+    -u, --user              用户级安装 (默认, 安装到 Kimi Code CLI)
+    
+    # AI Agent 安装选项
+    --kimi                  安装到 Kimi Code CLI (默认)
+    --claude                安装到 Claude Code
+    --cursor                安装到 Cursor (rules)
+    --codex                 安装到 Codex
+    --all-agents            安装到所有支持的 AI Agent
+    
     --uninstall             卸载
     --check                 检查环境依赖
 
 示例:
-    $0                      # 默认用户级安装
+    $0                      # 默认安装到 Kimi Code CLI
+    $0 --kimi               # 同上
+    $0 --claude             # 安装到 Claude Code
+    $0 --all-agents         # 安装到所有 Agent
     $0 --system             # 系统级安装
     $0 --target ~/.config/agents/skills/  # 安装到指定目录
     $0 --check              # 检查环境
@@ -113,12 +130,12 @@ check_environment() {
     fi
 }
 
-# 安装函数
-install_skill() {
+# 安装 skill 核心文件
+install_skill_files() {
     local target_path=$1
+    local agent_type=$2
     
-    print_info "安装 NCU CUDA Profiling Skill..."
-    print_info "目标目录: $target_path"
+    print_info "安装 NCU CUDA Profiling Skill 到 $target_path..."
     
     # 创建目录
     mkdir -p "$target_path"
@@ -131,7 +148,25 @@ install_skill() {
         cp -r "$SCRIPT_DIR/examples" "$target_path/"
     fi
     
-    # 创建 bin 目录和快捷命令
+    # 根据 agent 类型调整
+    case $agent_type in
+        cursor)
+            # Cursor 使用 .md 后缀
+            mv "$target_path/SKILL.md" "$target_path/ncu-cuda-profiling.md" 2>/dev/null || true
+            ;;
+        *)
+            # 其他 agent 保持默认
+            ;;
+    esac
+    
+    print_success "✓ 已安装到 $target_path"
+}
+
+# 创建命令行工具
+install_cli_tools() {
+    local target_path=$1
+    
+    # 创建 bin 目录
     mkdir -p "$target_path/bin"
     
     # 创建 ncu-profile 快捷命令
@@ -189,13 +224,78 @@ ncu --import "$REPORT" --print-summary per-kernel
 EOF
     chmod +x "$target_path/bin/ncu-analyze"
     
+    print_success "✓ CLI 工具已安装"
+}
+
+# 安装到 Kimi Code CLI
+install_kimi() {
+    print_info "安装到 Kimi Code CLI..."
+    install_skill_files "$KIMI_PATH" "kimi"
+    install_cli_tools "$KIMI_PATH"
+    
+    echo ""
+    print_success "Kimi Code CLI 安装完成！"
+    echo ""
+    echo "使用方式:"
+    echo "  启动 Kimi Code CLI 后，skill 会自动加载"
+    echo "  你可以直接询问: '帮我分析这个 CUDA kernel'"
+}
+
+# 安装到 Claude Code
+install_claude() {
+    print_info "安装到 Claude Code..."
+    install_skill_files "$CLAUDE_PATH" "claude"
+    
+    echo ""
+    print_success "Claude Code 安装完成！"
+    echo ""
+    echo "使用方式:"
+    echo "  启动 Claude Code 后，可以使用 /skill ncu-cuda-profiling 加载"
+    echo "  或直接询问: '使用 ncu-cuda-profiling skill 分析这个 kernel'"
+}
+
+# 安装到 Cursor
+install_cursor() {
+    print_info "安装到 Cursor..."
+    install_skill_files "$CURSOR_PATH" "cursor"
+    
+    echo ""
+    print_success "Cursor 安装完成！"
+    echo ""
+    echo "使用方式:"
+    echo "  Cursor 会自动读取 ~/.cursor/rules/ 下的规则文件"
+    echo "  你也可以在项目根目录创建 .cursorrules 文件"
+}
+
+# 安装到 Codex
+install_codex() {
+    print_info "安装到 Codex..."
+    install_skill_files "$CODEX_PATH" "codex"
+    
+    echo ""
+    print_success "Codex 安装完成！"
+    echo ""
+    echo "使用方式:"
+    echo "  Codex 会在处理 CUDA 相关问题时自动引用 skill 内容"
+}
+
+# 通用安装函数
+install_skill() {
+    local target_path=$1
+    
+    print_info "安装 NCU CUDA Profiling Skill..."
+    print_info "目标目录: $target_path"
+    
+    install_skill_files "$target_path" "generic"
+    install_cli_tools "$target_path"
+    
     # 添加到 PATH 的提示
     print_success "安装完成！"
     echo ""
     echo "⚠️  请添加以下路径到您的 PATH:"
     echo "   export PATH=\"$target_path/bin:\$PATH\""
     echo ""
-    echo "您可以将其添加到 ~/.bashrc 或 ~/.zshrc:"
+    echo "你可以将其添加到 ~/.bashrc 或 ~/.zshrc:"
     echo "   echo 'export PATH=\"$target_path/bin:\$PATH\"' >> ~/.bashrc"
     echo ""
     echo "📖 使用说明:"
@@ -227,7 +327,12 @@ main() {
     local install_path=""
     local do_check=false
     local do_uninstall=false
-    local install_type="user"  # user, system, or custom
+    local install_type="user"
+    local install_kimi=false
+    local install_claude=false
+    local install_cursor=false
+    local install_codex=false
+    local install_all=false
     
     # 解析参数
     while [[ $# -gt 0 ]]; do
@@ -247,6 +352,27 @@ main() {
                 ;;
             -u|--user)
                 install_type="user"
+                install_kimi=true
+                shift
+                ;;
+            --kimi)
+                install_kimi=true
+                shift
+                ;;
+            --claude)
+                install_claude=true
+                shift
+                ;;
+            --cursor)
+                install_cursor=true
+                shift
+                ;;
+            --codex)
+                install_codex=true
+                shift
+                ;;
+            --all-agents)
+                install_all=true
                 shift
                 ;;
             --check)
@@ -271,22 +397,19 @@ main() {
         exit $?
     fi
     
-    # 确定安装路径
-    if [ -z "$install_path" ]; then
-        case $install_type in
-            system)
-                install_path="$DEFAULT_SYSTEM_PATH"
-                ;;
-            user)
-                install_path="$DEFAULT_USER_PATH"
-                ;;
-        esac
+    # 如果没有任何 agent 选项，默认安装 Kimi
+    if [ "$install_kimi" = false ] && [ "$install_claude" = false ] && \
+       [ "$install_cursor" = false ] && [ "$install_codex" = false ] && \
+       [ "$install_all" = false ] && [ -z "$install_path" ] && [ "$install_type" != "system" ]; then
+        install_kimi=true
     fi
     
-    # 卸载
-    if [ "$do_uninstall" = true ]; then
-        uninstall_skill "$install_path"
-        exit 0
+    # 处理 --all-agents
+    if [ "$install_all" = true ]; then
+        install_kimi=true
+        install_claude=true
+        install_cursor=true
+        install_codex=true
     fi
     
     # 显示安装信息
@@ -314,15 +437,42 @@ main() {
             print_info "请使用: sudo $0 --system"
             exit 1
         fi
+        install_skill "$DEFAULT_SYSTEM_PATH"
+        exit 0
     fi
     
-    # 执行安装
-    install_skill "$install_path"
+    # 自定义路径安装
+    if [ -n "$install_path" ]; then
+        install_skill "$install_path"
+        exit 0
+    fi
     
+    # 安装到各 AI Agent
+    if [ "$install_kimi" = true ]; then
+        install_kimi
+        echo ""
+    fi
+    
+    if [ "$install_claude" = true ]; then
+        install_claude
+        echo ""
+    fi
+    
+    if [ "$install_cursor" = true ]; then
+        install_cursor
+        echo ""
+    fi
+    
+    if [ "$install_codex" = true ]; then
+        install_codex
+        echo ""
+    fi
+    
+    echo "========================================"
+    print_success "全部安装完成！"
+    echo "========================================"
     echo ""
-    echo "========================================"
-    print_success "安装完成！"
-    echo "========================================"
+    echo "📚 详细兼容性说明: AGENTS_COMPATIBILITY.md"
 }
 
 # 运行主函数
