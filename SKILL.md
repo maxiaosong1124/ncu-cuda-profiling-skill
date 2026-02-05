@@ -1,611 +1,554 @@
 ---
-name: ncu-cuda-optimizer-v2
-description: Rlpha-loop style automated CUDA optimization with interactive and auto modes, automatic rollback, and built-in strategy library
-version: 2.0.0
-author: maxiaosong1124
-tags: [cuda, profiling, ncu, performance, optimization, auto-optimization, rlpha-loop]
+name: ncu-cuda-profiling
+description: Automated NCU (Nsight Compute) profiling workflow with comprehensive metrics collection, bottleneck analysis, and optimization guidance
 ---
 
-# NCU CUDA Optimizer v2 - Rlpha-loop Style
+# NCU CUDA 自动化性能分析 (v2 Enhanced)
 
-本 Skill 提供 **Rlpha-loop 风格** 的自动化 CUDA 性能优化，支持**交互式**和**全自动**两种模式，内置常用 CUDA 优化策略库，自动回滚性能下降的优化。
+本 Skill 提供完整的自动化 NCU 性能分析流程，支持**全量指标采集**、**智能瓶颈诊断**和**针对性优化建议**。
 
-## 与 v1 版本的关系
+---
 
-**v2 完全覆盖 v1 的所有功能**，并新增自动优化能力：
+## 🚀 快速开始
 
-| 特性 | v1 (分析型) | v2 (分析+优化型) |
-|------|------------|------------------|
-| **单次 NCU 分析** | ✅ | ✅ `analyze_only()` |
-| **从已有报告导入** | ✅ | ✅ `analyze_from_report()` |
-| **数据持久化** | ✅ 保存到 `ncu_reports/` | ✅ `_save_to_project_dir()` |
-| **自动诊断** | ✅ | ✅ |
-| **生成分析报告** | ✅ | ✅ (v1 风格报告) |
-| **迭代循环优化** | ❌ | ✅ |
-| **自动代码修改** | ❌ | ✅ |
-| **版本管理** | ❌ | ✅ |
-| **自动回滚** | ❌ | ✅ |
-| **收敛检测** | ❌ | ✅ |
-| **交互式/全自动** | ❌ | ✅ |
-
-**结论**: v2 是 v1 的超集，建议统一使用 v2。
-
-## 快速开始
-
-### 自然语言触发（推荐）
-
-安装本 Skill 后，直接用自然语言告诉 AI 你的需求：
-
-#### 全自动优化
-```
-你: 帮我全自动优化这个矩阵乘法算子
-AI: [自动识别 ncu-cuda-optimizer-v2 skill]
-    正在分析当前目录的 CUDA 文件...
-    发现 matmul.cu，开始全自动优化...
-
-    [Iteration 1/5] 诊断瓶颈: DRAM_MEMORY_BOUND
-    [Iteration 2/5] 应用 Block Tiling... 提升 2.3x
-    [Iteration 3/5] 应用 Shared Memory Padding... 提升 1.4x
-
-    ✅ 优化完成！总提升 3.2x
-    📊 报告已生成: optimization_report.md
-```
-
-#### 交互式优化
-```
-你: 一步步优化这个算子，让我确认每一步
-AI: [自动识别 ncu-cuda-optimizer-v2 skill]
-    发现 softmax.cu，启动交互式优化模式...
-
-    [第 1/5 轮]
-    📊 瓶颈诊断: L1_PRESSURE_BOUND
-    💡 推荐策略: Shared Memory Padding (预期 1.5x 提升)
-
-    策略描述: 通过填充避免共享内存 bank conflict
-    复杂度: low | 风险: 低
-
-    是否应用此优化? [y/n/查看详情]:
-你: y
-AI: ✅ 已应用，性能提升 1.6x
-    继续下一轮? [y/n]:
-```
-
-#### 其他自然语言指令
-- `"分析这个 CUDA 文件的性能瓶颈"` → 运行 NCU 分析并生成报告
-- `"自动优化所有 CUDA 文件"` → 批量优化当前目录下所有 .cu 文件
-- `"对比优化前后的性能"` → 如果有历史报告，自动对比分析
-- `"帮我优化这个 kernel"` → 自动检测并优化指定的 kernel
-
-### 命令行方式
-
-如需精确控制，可使用命令行：
+### 推荐: 一键完整采集
 
 ```bash
-# 全自动模式
-python optimizer.py matmul.cu --mode=auto
+# 使用 --set full 采集所有指标，并持久化保存
+ncu --set full \
+    -o <report_name> \
+    --target-processes all \
+    ./your_kernel
 
-# 交互式模式
-python optimizer.py matmul.cu --mode=interactive
+# 示例
+ncu --set full -o matmul_analysis --target-processes all ./matmul0_perf
 
-# 或在 Claude Code 中使用 slash 命令
-/ncu-optimize matmul.cu --mode=auto
+# 自动生成:
+# - matmul_analysis.ncu-rep    (NCU 报告文件)
+# - matmul_analysis.csv        (CSV 格式指标)
 ```
 
-## 核心概念
+### 指标提取 (采集后)
 
-### 优化循环 (Optimization Loop)
+```bash
+# 从已保存的报告提取关键指标 (无需重新运行 kernel)
+ncu --import matmul_analysis.ncu-rep --print-summary per-kernel
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Optimization Loop v2                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │   模式选择   │───▶│  交互式模式  │    │  全自动模式  │     │
-│  │  (用户决策)  │    │  (逐步确认)  │    │  (自主优化)  │     │
-│  └─────────────┘    └─────────────┘    └─────────────┘     │
-│                              │                  │           │
-│                              └────────┬─────────┘           │
-│                                       ▼                     │
-│                         ┌─────────────────────────┐         │
-│                         │     优化迭代引擎         │         │
-│                         │  ┌─────────────────────┐│         │
-│                         │  │ 1. NCU 基准测试      ││         │
-│                         │  │ 2. 瓶颈诊断           ││         │
-│                         │  │ 3. 生成优化策略       ││         │
-│                         │  │ 4. 应用代码优化       ││◄───────┤
-│                         │  │ 5. 重新编译测试       ││        │
-│                         │  │ 6. 性能对比验证       ││        │
-│                         │  │ 7. 下降? ──► 回滚    ││        │
-│                         │  │ 8. 收敛? ──► 结束    ││        │
-│                         │  │ 9. 未收敛 ──► 继续   ││────────┘
-│                         │  └─────────────────────┘│         │
-│                         └─────────────────────────┘         │
-│                                       │                     │
-│                                       ▼                     │
-│                         ┌─────────────────────────┐         │
-│                         │      输出成果            │         │
-│                         │  • 最佳版本代码          │         │
-│                         │  • 完整对比报告 (Markdown)│        │
-│                         │  • 优化历程可视化        │         │
-│                         │  • 性能提升总结          │         │
-│                         └─────────────────────────┘         │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+# 导出为 CSV
+ncu --import matmul_analysis.ncu-rep --page raw --csv > metrics.csv
 ```
 
-### 性能指标
+---
 
-**主要指标: Kernel 执行时间 (GPU Time)**
+## 📋 标准分析流程 (改进版)
 
-优化器以 NCU 采集的 `gpu__time_duration.avg`（kernel 实际执行时间）作为主要性能指标：
+### Phase 1: 数据获取 (优先顺序)
 
-```
-加速比 = 旧版本执行时间 / 新版本执行时间
-```
-
-例如:
-- Baseline: 1200μs
-- v1: 400μs
-- 加速比 = 1200 / 400 = 3.0x
-
-**辅助指标**
-
-同时采集 Roofline、吞吐量等指标用于瓶颈诊断，但优化决策以执行时间为准。
-
-### 终止条件
-
-优化循环在以下情况停止：
-
-1. **收敛检测**: 当前轮次执行时间提升 < 3% (默认)
-2. **最大迭代**: 达到 5 轮 (默认)
-3. **用户中断**: 交互模式下用户选择停止
-4. **无可用策略**: 没有适用的优化策略
-5. **性能下降**: 某轮优化导致性能下降 > 5% 时自动回滚
-
-### 自动回滚机制
-
-当某轮优化导致性能下降超过 5% 时：
-
-```
-⚠️  Performance regression detected (0.85x)
-Auto-rolling back to previous version...
-
-选项:
-1. 自动回滚到上一版本，继续下一轮
-2. (交互模式) 询问用户是否继续
+**情况 A: 用户提供了 .ncu-rep 文件**
+```bash
+# 直接导入已有报告
+ncu --import <file.ncu-rep> --page raw --csv > metrics.csv
 ```
 
-## 优化策略库
+**情况 B: 用户需要新分析**
+```bash
+# 完整采集并持久化
+ncu --set full -o <report_name> --target-processes all ./kernel
+```
 
-### 内置策略
+**情况 C: 用户提供了截图/文本**
+- 直接提取其中的数值进行分析
 
-| 策略名称 | 目标瓶颈 | 预期收益 | 复杂度 |
-|---------|---------|---------|--------|
-| **Block Tiling** | DRAM_MEMORY_BOUND | 3-5x | medium |
-| **Shared Memory Padding** | L1_PRESSURE_BOUND | 1.2-2x | low |
-| **Vectorized Load** | DRAM_MEMORY_BOUND | 1.2-1.5x | medium |
-| **Double Buffering** | LATENCY_BOUND | 1.2-1.5x | high |
-| **Loop Unrolling** | LATENCY_BOUND | 1.1-1.3x | low |
-| **Register Optimization** | OCCUPANCY_BOUND | 1.2-2x | medium |
-| **Warp-level Primitives** | COMPUTE_BOUND | 1.2-1.5x | medium |
-| **Grid-Stride Loops** | MIXED_BOUND | 1.1-1.3x | low |
+### Phase 2: 核心指标解析 (按优先级)
 
-### 策略选择逻辑
+#### Step 1: GPU Speed Of Light Throughput (首要)
+**判断瓶颈类型：Memory Bound vs Compute Bound**
+
+| 指标 | 阈值 | 说明 |
+|------|------|------|
+| **Memory Throughput** | >80% | Memory Bound |
+| **DRAM Throughput** | >80% | 显存瓶颈 |
+| **Compute (SM) Throughput** | >80% | Compute Bound |
+| **L1/TEX Cache Throughput** | >80% | L1 压力大 |
+| **L2 Cache Throughput** | >80% | L2 压力大 |
+
+**判断逻辑**：
+```
+Memory Throughput > 80% 且 Compute Throughput < 50%  →  Memory Bound（内存瓶颈）
+Compute Throughput > 80% 且 Memory Throughput < 50%  →  Compute Bound（计算瓶颈）
+两者都高 → 需要进一步分析 Memory Workload 和 Compute Workload
+```
+
+#### Step 2: Compute Workload Analysis
+**分析 SM 计算资源利用情况**
+
+| 指标 | 健康范围 | 说明 |
+|------|----------|------|
+| **Executed Ipc Active** | >0.5 | 每周期执行指令数 |
+| **Issue Slots Busy** | >50% | 发射槽忙碌率 |
+| **SM Busy** | >70% | SM 忙碌程度 |
+
+**解读**：
+- **SM Busy 很低**（<20%）→ 算力没被充分利用，可能原因：
+  - 内存等待导致算力闲着 (Memory Dependency stall)
+  - warp 数量不足 (Occupancy 低)
+  - 指令依赖链过长 (Execution Dependency stall)
+
+#### Step 3: Memory Workload Analysis
+**分析 GPU 内存子系统性能**
+
+| 指标 | 健康范围 | 说明 |
+|------|----------|------|
+| **Mem Busy** | <80% | 内存单元忙碌程度 |
+| **L1/TEX Hit Rate** | >50% | L1/TEX 缓存命中率 |
+| **L2 Hit Rate** | >70% | L2 缓存命中率 |
+
+#### Step 4: Occupancy (占用率分析)
+**分析 SM 占用情况**
+
+| 指标 | 健康范围 | 说明 |
+|------|----------|------|
+| **Theoretical Occupancy** | >50% | 理论占用率 |
+| **Achieved Occupancy** | >40% | 实际占用率 |
+
+**注意**：理论 vs 实际差距大 → 工作负载不均衡或分支发散
+
+#### Step 5: Scheduler Statistics (调度器统计)
+**分析 warp 调度效率**
+
+| 指标 | 说明 |
+|------|------|
+| **Active Warps** | 活跃 warp 数量 |
+| **Eligible Warps** | 准备好发射的 warp |
+| **No Eligible** | 每周期没有 warp 准备好 |
+
+**解读**：No Eligible 比例高 → warp 停滞严重
+
+#### Step 6: Warp State Statistics (Warp状态分析)
+**分析 warp 停滞原因**
+
+| Stall Reason | 说明 | 优化方向 |
+|--------------|------|----------|
+| **Wait** | 等待指令获取 | 检查指令缓存 |
+| **Barrier** | 等待 `__syncthreads` | 减少同步点 |
+| **Memory Dependency** | 等待内存操作 | 增加独立计算指令 |
+| **Execution Dependency** | 等待前一指令结果 | 增加 ILP |
+| **Memory Throttle** | 内存压力过大 | 优化内存访问模式 |
+| **Instruction Fetch** | 指令获取延迟 | 减少代码体积 |
+
+### Phase 3: 智能诊断 (自动决策树)
 
 ```python
-def select_strategy(metrics):
-    # 1. 诊断瓶颈类型
-    bottleneck = diagnose_bottleneck(metrics)
-
-    # 2. 筛选适用策略
-    candidates = [
-        s for s in strategies
-        if bottleneck in s.target_bottlenecks
-        and all(s.metrics_conditions[k](metrics[k])
-                for k in s.metrics_conditions)
-    ]
-
-    # 3. 按预期收益排序
-    return sorted(candidates, key=lambda s: s.expected_speedup, reverse=True)
+def auto_diagnose(metrics):
+    """
+    自动诊断瓶颈类型
+    
+    决策树：
+    1. 首先看 Speed Of Light Throughput
+    2. 然后看 Occupancy 和 Scheduler Stats
+    3. 最后看 Warp State Stall Reasons
+    """
+    memory_throughput = metrics.get('memory_throughput', 0)
+    dram_throughput = metrics.get('dram_throughput', 0)
+    sm_throughput = metrics.get('sm_throughput', 0)
+    sm_busy = metrics.get('sm_busy', 0)
+    occupancy = metrics.get('occupancy', 0)
+    issue_slots_busy = metrics.get('issue_slots_busy', 0)
+    
+    # Level 1: 判断 Memory vs Compute
+    if dram_throughput > 80 and sm_throughput < 50:
+        # Memory Bound - 进一步细分
+        l1_hit_rate = metrics.get('l1_hit_rate', 100)
+        if l1_hit_rate < 30:
+            return BottleneckType.L1_PRESSURE_BOUND
+        else:
+            return BottleneckType.DRAM_MEMORY_BOUND
+    
+    elif sm_throughput > 80 and dram_throughput < 50:
+        # Compute Bound
+        return BottleneckType.COMPUTE_BOUND
+    
+    elif sm_busy < 30 and occupancy > 50:
+        # SM 空闲但 Occupancy 高 → 可能是 warp 停滞
+        return BottleneckType.LATENCY_BOUND
+    
+    elif occupancy < 30:
+        # Occupancy 低
+        return BottleneckType.OCCUPANCY_BOUND
+    
+    else:
+        return BottleneckType.MIXED_BOUND
 ```
 
-## AI Agent 识别逻辑
+---
 
-当用户输入以下内容时，AI 应自动识别并调用本 Skill：
+## 📊 详细指标说明
 
-### 意图识别表
+### 1. GPU Speed Of Light Throughput
 
-| 用户输入模式 | 识别意图 | 执行动作 |
-|-------------|---------|---------|
-| `"优化这个算子"`, `"优化这个 CUDA 文件"`, `"帮我优化 kernel"` | 优化 CUDA 代码 | 检测当前目录 .cu 文件，询问模式 |
-| `"全自动优化"`, `"自动优化"`, `"一键优化"` | 全自动模式 | 直接以 `--mode=auto` 运行 |
-| `"一步步优化"`, `"逐步优化"`, `"让我确认每一步"` | 交互式模式 | 以 `--mode=interactive` 运行 |
-| `"分析性能"`, `"分析瓶颈"`, `"profile this kernel"` | 性能分析 | 只运行 NCU 分析，不修改代码 |
-| `"对比性能"`, `"compare versions"` | 对比分析 | 对比不同版本的性能数据 |
-| `"批量优化"`, `"优化所有 CUDA 文件"` | 批量优化 | 遍历当前目录所有 .cu 文件 |
+**指标含义**：GPU 极限吞吐量分析，判断是**算力瓶颈**还是**带宽瓶颈**
 
-### 自动检测流程
+| 指标名 | 单位 | 说明 | 分析要点 |
+|--------|------|------|----------|
+| **DRAM Frequency** | Ghz | 显存频率 | 硬件固有频率 |
+| **SM Frequency** | Ghz | SM 运行频率 | 硬件固有频率 |
+| **Elapsed Cycles** | cycle | 经过的时钟周期数 | 总执行周期 |
+| **Memory Throughput** | % | 内存吞吐量 | **>80% 表示 memory bound** |
+| **DRAM Throughput** | % | 显存吞吐量 | **>80% 表示显存瓶颈** |
+| **Duration** | us/ms | 执行时间 | ncu采集时间（非真实时间） |
+| **L1/TEX Cache Throughput** | % | L1/Tex缓存吞吐量 | 缓存利用情况 |
+| **L2 Cache Throughput** | % | L2 缓存吞吐量 | 二级缓存利用情况 |
+| **SM Active Cycles** | cycle | SM活跃周期 | SM实际工作时间 |
+| **Compute (SM) Throughput** | % | SM计算吞吐量 | **>80% 表示 compute bound** |
 
-当用户表达优化意图时，AI 应按以下流程执行：
+### 2. Compute Workload Analysis
 
-```python
-def handle_optimization_request(user_input):
-    # 1. 检测 CUDA 文件
-    cuda_files = glob("*.cu")
-    if not cuda_files:
-        return "当前目录未找到 CUDA 文件 (.cu)"
+| 指标名 | 单位 | 说明 |
+|--------|------|------|
+| **Executed Ipc Active** | inst/cycle | 每周期执行指令数 |
+| **Issue Slots Busy** | % | 发射槽忙碌率 |
+| **SM Busy** | % | SM 忙碌程度 |
 
-    # 2. 确定模式
-    if any(word in user_input for word in ["全自动", "自动", "一键", "auto"]):
-        mode = "auto"
-    elif any(word in user_input for word in ["一步步", "逐步", "交互", "确认", "interactive"]):
-        mode = "interactive"
-    else:
-        # 询问用户
-        return "请选择优化模式：\n1. 全自动优化 (AI 自主完成)\n2. 交互式优化 (每步确认)"
+### 3. Memory Workload Analysis
 
-    # 3. 执行优化
-    if len(cuda_files) == 1:
-        return run_optimizer(cuda_files[0], mode)
-    else:
-        return f"发现 {len(cuda_files)} 个 CUDA 文件，请选择要优化的文件: {cuda_files}"
-```
+| 指标名 | 说明 |
+|--------|------|
+| **Mem Busy** | 内存单元忙碌程度 |
+| **Max Bandwidth** | 内存带宽利用率峰值 |
+| **Mem Pipes Busy** | 内存管道忙碌程度 |
+| **L1/TEX Hit Rate** | L1/TEX 缓存命中率 |
+| **L2 Hit Rate** | L2 缓存命中率 |
 
-## 输出报告
+### 4. Warp State Statistics (Stall Reasons)
 
-优化完成后生成 Markdown 格式报告：
+| Stall Reason | 说明 | 优化方向 |
+|--------------|------|----------|
+| **Wait** | 等待指令获取 | 检查指令缓存压力 |
+| **Barrier** | 等待同步屏障 (`__syncthreads`) | 减少同步点，或使用 warp-level 原语 |
+| **Memory Dependency** | 等待内存操作完成 | 增加独立计算指令，使用 __launch_bounds__ |
+| **Execution Dependency** | 等待前一指令结果 | 增加指令级并行 (ILP) |
+| **Memory Throttle** | 内存子系统压力过大 | 优化内存访问模式，使用共享内存 |
+| **Texture** | 等待纹理操作 | 优化纹理访问模式 |
+| **Constant** | 等待常量缓存 | 检查常量内存使用 |
+| **Instruction Fetch** | 指令获取延迟 | 减少代码体积 |
+| **Not Selected** | 有 eligible warp 但未被选中 | 正常调度行为 |
+| **Sleep** | warp 处于睡眠状态 | 检查 `nanosleep` 使用 |
+| **Ipc** | 每周期指令数限制 | 正常情况 |
+
+---
+
+## 🎯 优化策略库
+
+### DRAM_MEMORY_BOUND (显存瓶颈)
+
+**判断依据**：
+- DRAM Throughput > 80%
+- Memory Throughput > 80%
+- SM Busy < 50%
+
+**优化策略**：
+
+| 策略 | 代码示例 | 预期收益 |
+|------|----------|----------|
+| **Block Tiling** | `__shared__ float As[BM][BK];` | 3-5x |
+| **Vectorized Load** | `float4 vec = *(float4*)&A[i];` | 1.3-1.5x |
+| **Prefetching** | `prefetch_l1(&A[next]);` | 1.1-1.3x |
+
+### L1_PRESSURE_BOUND (L1 压力)
+
+**判断依据**：
+- L1/TEX Throughput > 80%
+- DRAM Throughput < 30%
+- L1 Hit Rate < 30%
+
+**优化策略**：
+
+| 策略 | 代码示例 | 预期收益 |
+|------|----------|----------|
+| **Shared Memory Padding** | `As[BM][BK+1]` | 1.2-2x |
+| **Data Transpose** | 调整访问模式 | 1.1-1.5x |
+| **Fragment Caching** | 寄存器缓存 | 1.1-1.3x |
+
+### LATENCY_BOUND (延迟瓶颈)
+
+**判断依据**：
+- SM Busy < 30%
+- Occupancy > 50%
+- Memory Dependency stall 高
+
+**优化策略**：
+
+| 策略 | 代码示例 | 预期收益 |
+|------|----------|----------|
+| **Double Buffering** | `As[2][BM][BK]` | 1.2-1.5x |
+| **Loop Unrolling** | `#pragma unroll 4` | 1.1-1.3x |
+| **ILP Increase** | 独立计算指令交错 | 1.1-1.2x |
+
+### COMPUTE_BOUND (计算瓶颈)
+
+**判断依据**：
+- SM Throughput > 80%
+- SM Busy > 80%
+- DRAM Throughput < 50%
+
+**优化策略**：
+
+| 策略 | 代码示例 | 预期收益 |
+|------|----------|----------|
+| **FMA Usage** | `fmaf(a, b, c)` | 1.1-1.3x |
+| **Tensor Core** | `mma_sync` | 2-8x |
+| **Warp Primitives** | `__shfl_down_sync` | 1.2-1.5x |
+
+### OCCUPANCY_BOUND (占用率瓶颈)
+
+**判断依据**：
+- Occupancy < 30%
+- Registers Per Thread > 64
+
+**优化策略**：
+
+| 策略 | 代码示例 | 预期收益 |
+|------|----------|----------|
+| **Launch Bounds** | `__launch_bounds__(256, 2)` | 1.2-2x |
+| **Register Reduce** | 复用变量 | 1.1-1.3x |
+| **Block Size Tuning** | 调整 threads per block | 1.1-1.5x |
+
+---
+
+## 📊 输出模板
 
 ```markdown
-# NCU CUDA 自动优化报告
+# NCU 性能分析报告 (v2)
 
-**优化时间**: 2024-01-15T10:30:00
-**源文件**: matmul.cu
-**优化模式**: auto
-**迭代次数**: 4/5
+## 📁 报告信息
+- **Kernel**: {kernel_name}
+- **采集时间**: {timestamp}
+- **报告文件**: {report_file}
+- **原始数据**: {csv_file}
 
-## 优化概览
+## 📈 执行摘要
 
-- **初始执行时间**: 1200.50μs
-- **初始 Roofline**: 25.0%
-- **最终执行时间**: 352.20μs
-- **最终 Roofline**: 85.0%
-- **总加速比**: 3.41x (以执行时间为准)
-- **最佳版本**: v3
-- **收敛状态**: 已收敛
-- **收敛原因**: 执行时间提升 < 3% (1.02x)
+| 项目 | 数值 |
+|------|------|
+| **主要瓶颈** | {bottleneck_type} |
+| **置信度** | {confidence} |
+| **性能** | {performance} GFLOPS |
+| **优化潜力** | {potential}x |
 
-## 优化历程
+## 📊 关键指标
 
-| 版本 | 策略 | 执行时间 | Roofline | 相对Baseline | 相对上一轮 | 状态 |
-|------|------|----------|----------|--------------|------------|------|
-| baseline | - | 1200.50μs | 25.0% | 1.00x | - | ✅ |
-| v1 | Block Tiling | 545.68μs | 55.0% | 2.20x | 2.20x | ✅ |
-| v2 | Shared Memory Padding | 416.67μs | 72.0% | 2.88x | 1.31x | ✅ |
-| v3 | Vectorized Load | 352.20μs | 85.0% | 3.41x | 1.18x | ✅ |
-| v4 | Loop Unrolling | 345.26μs | 86.5% | 3.48x | 1.02x | ✅ |
+### Speed Of Light Throughput
+| 指标 | 数值 | 健康阈值 | 状态 |
+|------|------|----------|------|
+| Memory Throughput | {memory_throughput}% | < 80% | {status} |
+| DRAM Throughput | {dram_throughput}% | < 80% | {status} |
+| Compute (SM) Throughput | {sm_throughput}% | < 80% | {status} |
+| L1/TEX Throughput | {l1tex_throughput}% | < 80% | {status} |
 
-## 详细分析
+### Compute Workload
+| 指标 | 数值 | 健康阈值 | 状态 |
+|------|------|----------|------|
+| SM Busy | {sm_busy}% | > 70% | {status} |
+| Issue Slots Busy | {issue_slots_busy}% | > 50% | {status} |
+| Executed Ipc Active | {ipc_active} | > 0.5 | {status} |
 
-### v1: Block Tiling
+### Memory Workload
+| 指标 | 数值 | 健康阈值 | 状态 |
+|------|------|----------|------|
+| L1/TEX Hit Rate | {l1_hit_rate}% | > 50% | {status} |
+| L2 Hit Rate | {l2_hit_rate}% | > 70% | {status} |
 
-- **策略描述**: 使用共享内存进行块级数据缓存，减少全局内存访问
-- **相对Baseline提升**: 2.20x
-- **相对上一轮提升**: 2.20x
+### Occupancy
+| 指标 | 数值 | 健康阈值 | 状态 |
+|------|------|----------|------|
+| Theoretical Occupancy | {theoretical_occupancy}% | > 50% | {status} |
+| Achieved Occupancy | {achieved_occupancy}% | > 40% | {status} |
 
-**关键指标**:
-- dram_throughput: 35.00 (优化前 85%)
-- l1tex_throughput: 65.00
-- sm_busy: 75.00
-- occupancy: 68.00
-- roofline_ratio: 55.00
+## 🔍 诊断详情
 
-### v2: Shared Memory Padding
-...
+**瓶颈类型**: {bottleneck_type}
 
-## 最终推荐代码
+**判断依据**:
+- {reason_1}
+- {reason_2}
+- {reason_3}
 
-[完整的优化后代码]
+## 💡 优化建议
 
-## 进一步优化建议
+### 高优先级
+{high_priority_suggestions}
 
-由于达到收敛阈值，自动优化停止。
-如需继续优化，可考虑：
-1. 使用 Tensor Cores (预期额外 1.3x)
-2. 调整 block size 为 256 (预期额外 1.1x)
-```
+### 中优先级
+{medium_priority_suggestions}
 
-## 使用方式
+## 🛠️ 下一步操作
 
-### 方式一: 自然语言（推荐）
-
-直接用自然语言与 AI 交互：
-
-#### 分析模式（v1 功能）
-```
-用户: 分析这个 kernel 的性能瓶颈
-AI:  正在分析 matmul.cu...
-      📊 主要瓶颈: DRAM_MEMORY_BOUND
-      📈 GPU 时间: 1200.5 μs
-      💡 建议: Block Tiling (预期 3x 提升)
-      报告已保存到 ncu_reports/
-
-用户: 从已有报告分析
-AI:  请提供 .ncu-rep 文件路径
-用户: matmul_analysis.ncu-rep
-AI:  导入分析中...
-      📊 诊断结果: L1_PRESSURE_BOUND
-```
-
-#### 优化模式（v2 功能）
-```
-用户: 帮我全自动优化这个矩阵乘法
-AI:  检测到 matmul.cu，启动全自动优化...
-      [优化完成] 总提升 3.2x，报告已生成
-
-用户: 一步步分析这个 kernel 的性能
-AI:  正在分析...
-      第1轮: 发现 DRAM 瓶颈，建议 Block Tiling
-      是否应用? [y/n]:
-```
-
-### 方式二: Python 脚本
-
+### 建议的 NCU 命令
 ```bash
-# ========== 分析模式 (v1 功能) ==========
-
-# 单次分析 - 只生成报告，不修改代码
-python optimizer.py matmul.cu --mode=analyze
-
-# 从已有 NCU 报告导入分析
-python optimizer.py --import-report matmul_analysis.ncu-rep
-
-# ========== 优化模式 (v2 功能) ==========
-
-# 全自动优化
-python optimizer.py matmul.cu --mode=auto
-
-# 交互式优化
-python optimizer.py matmul.cu --mode=interactive
-
-# ========== 高级参数 ==========
-
-# 自定义编译命令
-python optimizer.py matmul.cu \
-    --build "nvcc -O3 -arch=sm_80 {source} -o {output}"
-
-# 调整迭代参数
-python optimizer.py matmul.cu \
-    --max-iter 3 \
-    --threshold 0.05
-
-# 不保存到项目目录
-python optimizer.py matmul.cu --mode=analyze --no-save
+# 优化后重新采集
+ncu --set full -o {report_name}_optimized --target-processes all ./kernel_optimized
 ```
 
-### 方式三: 编程式调用
-
-```python
-from optimizer import CUDAOptimizer
-
-# ========== 分析模式 (v1 功能) ==========
-
-# 单次分析
-optimizer = CUDAOptimizer(
-    source_file="matmul.cu",
-    build_command="nvcc -O3 {source} -o {output}"
-)
-result = optimizer.analyze_only(save_to_project=True)
-print(f"瓶颈: {result['bottleneck']}")
-print(f"建议: {result['recommendations']}")
-
-# 从已有报告导入
-result = optimizer.analyze_from_report("matmul_analysis.ncu-rep")
-
-# ========== 优化模式 (v2 功能) ==========
-
-# 全自动优化
-optimizer = CUDAOptimizer(
-    source_file="matmul.cu",
-    build_command="nvcc -O3 {source} -o {output}",
-    mode="auto"
-)
-result = optimizer.run()
-print(f"最佳版本: {result['best_version']}")
-print(f"加速比: {result['best_speedup']:.2f}x")
+### 验证清单
+- [ ] 实施建议的优化
+- [ ] 重新运行 NCU 采集
+- [ ] 对比优化前后数据
+- [ ] 验证结果正确性
 ```
-
-## 配置参数
-
-### 环境变量
-
-```bash
-# NCU 路径
-export NCU_PATH=/usr/local/cuda/bin/ncu
-
-# 默认优化参数
-export NCU_OPT_MAX_ITER=5
-export NCU_OPT_THRESHOLD=0.03
-export NCU_OPT_MODE=auto
-```
-
-### 配置文件
-
-项目根目录创建 `.ncu-opt.config`：
-
-```json
-{
-  "mode": "auto",
-  "max_iterations": 5,
-  "convergence_threshold": 0.03,
-  "regression_threshold": 0.95,
-  "build_command": "nvcc -O3 -arch=sm_80 {source} -o {output}",
-  "strategies": {
-    "enabled": ["block_tiling", "smem_padding", "vectorized_load"],
-    "disabled": ["double_buffering"]
-  }
-}
-```
-
-## 高级用法
-
-### 自定义优化策略
-
-```python
-from v2.strategy_library import OptimizationStrategy, BottleneckType
-
-# 创建自定义策略
-my_strategy = OptimizationStrategy(
-    name="My Custom Opt",
-    description="自定义优化策略",
-    target_bottlenecks=[BottleneckType.COMPUTE_BOUND],
-    applicable_metrics={
-        "sm_busy": lambda x: x > 80
-    },
-    code_template="""
-    // 自定义优化代码
-    #pragma unroll
-    for (...) { ... }
-    """,
-    insertion_pattern=r"for\s*\(",
-    expected_speedup=1.5,
-    complexity="medium",
-    prerequisites=["条件1", "条件2"]
-)
-
-# 注册到策略库
-library.strategies["my_custom"] = my_strategy
-```
-
-### 批量优化多个文件
-
-```bash
-# 优化目录下所有 .cu 文件
-for f in *.cu; do
-    python v2/optimizer.py "$f" --mode=auto
-done
-
-# 或使用 skill 命令
-/ncu-optimize --batch "*.cu" --mode=auto
-```
-
-### 与 CI/CD 集成
-
-```yaml
-# .github/workflows/cuda-optimize.yml
-name: CUDA Auto-Optimization
-on: [push]
-
-jobs:
-  optimize:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Run NCU Optimizer
-        run: |
-          python ncu-cuda-profiling-skill/v2/optimizer.py \
-            kernels/matmul.cu --mode=auto
-
-      - name: Upload Report
-        uses: actions/upload-artifact@v2
-        with:
-          name: optimization-report
-          path: /tmp/ncu_opt_*/optimization_report.md
-```
-
-## 故障排除
-
-### 常见问题
-
-**Q: NCU 命令未找到**
-```bash
-# 检查 NCU 安装
-which ncu
-ncu --version
-
-# 设置路径
-export PATH=/usr/local/cuda/bin:$PATH
-```
-
-**Q: 编译失败**
-```bash
-# 检查 CUDA 编译器
-nvcc --version
-
-# 使用自定义构建命令
-python optimizer.py matmul.cu \
-    --build "nvcc -O3 -I/path/to/include {source} -o {output} -lmylib"
-```
-
-**Q: 优化后性能下降**
-- 这是正常现象，优化器会自动回滚
-- 检查策略是否适合你的代码模式
-- 尝试交互式模式手动选择策略
-
-**Q: 收敛过快**
-```bash
-# 降低收敛阈值
-python optimizer.py matmul.cu --threshold 0.01  # 1%
-
-# 增加最大迭代
-python optimizer.py matmul.cu --max-iter 10
-```
-
-## 最佳实践
-
-### 1. 从 Baseline 开始
-
-确保 baseline 代码可以正确编译和运行：
-
-```bash
-nvcc -O3 matmul.cu -o matmul
-./matmul  # 验证正确性
-```
-
-### 2. 选择合适的模式
-
-- **原型开发**: 使用 `interactive` 模式学习优化过程
-- **生产优化**: 使用 `auto` 模式批量处理
-- **调试问题**: 使用 `interactive` 模式精细控制
-
-### 3. 保存优化历史
-
-```bash
-# 每次优化保存到不同目录
-python optimizer.py matmul.cu --output-dir=opt_v1
-# 修改代码后
-python optimizer.py matmul.cu --output-dir=opt_v2
-```
-
-### 4. 结合手动优化
-
-自动优化是辅助工具，不是替代：
-
-```
-1. 运行自动优化获取 baseline
-2. 分析报告了解瓶颈
-3. 手动实现算法级优化
-4. 再次运行自动优化微调
-```
-
-## 性能对比
-
-### v1 vs v2 优化效果对比
-
-| 测试用例 | v1 建议 | v2 自动优化 | 时间节省 |
-|---------|--------|------------|---------|
-| Matmul Naive | 提供建议 | 3.4x 提升 | 80% |
-| Reduce Sum | 提供建议 | 2.8x 提升 | 75% |
-| Softmax | 提供建议 | 4.2x 提升 | 85% |
-
-## 相关资源
-
-- v1 版本文档: [SKILL.md](../SKILL.md)
-- 策略库源码: [strategy_library.py](./strategy_library.py)
-- 优化器源码: [optimizer.py](./optimizer.py)
-- 示例报告: [examples/](./examples/)
 
 ---
 
-*本 Skill 是 ncu-cuda-profiling-skill v2.0，与 v1 完全兼容，可同时安装使用*
+## 🔧 工具使用说明
+
+### 完整采集 (推荐)
+
+```bash
+# 采集所有指标并保存
+ncu --set full -o my_analysis --target-processes all ./kernel
+
+# 参数说明:
+# --set full          # 采集完整指标集
+# -o my_analysis      # 输出文件名 (生成 my_analysis.ncu-rep)
+# --target-processes all  # 监控所有进程
+```
+
+### 增量分析 (已有报告)
+
+```bash
+# 从已有报告提取特定指标
+ncu --import my_analysis.ncu-rep --print-summary per-kernel
+
+# 导出为 CSV 便于分析
+ncu --import my_analysis.ncu-rep --page raw --csv > metrics.csv
+```
+
+### 自动化脚本
+
+```bash
+# Python 分析器
+python optimizer.py --import report_name.ncu-rep
+
+# 分析模式 (仅分析不优化)
+python optimizer.py matmul.cu --mode=analyze
+
+# 全自动优化
+python optimizer.py matmul.cu --mode=auto --build "nvcc -O3 {source} -o {output}"
+```
+
+---
+
+## 📖 诊断规则详解
+
+### DRAM_MEMORY_BOUND
+
+```
+IF dram_throughput > 80% AND sm_throughput < 50%:
+    诊断: DRAM_MEMORY_BOUND (置信度: HIGH)
+    
+    优化策略:
+    1. Block Tiling (共享内存缓存)
+    2. Vectorized Load (float4)
+    3. Prefetching (数据预取)
+```
+
+### L1_PRESSURE_BOUND
+
+```
+IF l1tex_throughput > 80% AND dram_throughput < 30% AND l1_hit_rate < 30%:
+    诊断: L1_PRESSURE_BOUND (置信度: HIGH)
+    
+    优化策略:
+    1. Shared Memory Padding
+    2. Data Transpose
+    3. Fragment Caching
+```
+
+### LATENCY_BOUND
+
+```
+IF sm_busy < 30% AND occupancy > 50% AND memory_dependency_stall > 30%:
+    诊断: LATENCY_BOUND (置信度: MEDIUM)
+    
+    优化策略:
+    1. Double Buffering
+    2. Loop Unrolling
+    3. ILP Increase
+```
+
+---
+
+## 🎯 优化策略速查
+
+| 瓶颈类型 | 立即行动 | 代码示例 | 预期收益 |
+|---------|---------|---------|---------|
+| **DRAM_MEMORY_BOUND** | Block Tiling | `__shared__ float As[BM][BK];` | 3-5x |
+| **L1_PRESSURE_BOUND** | Padding | `As[BM][BK+1]` | 1.2-2x |
+| **LATENCY_BOUND** | Double Buffer | `As[2][BM*BK]` | 1.2-1.5x |
+| **COMPUTE_BOUND** | FMA | `fmaf(a, b, c)` | 1.1-1.3x |
+| **OCCUPANCY_BOUND** | Launch Bounds | `__launch_bounds__(256, 2)` | 1.2-2x |
+
+---
+
+## 📚 完整 NCU 命令参考
+
+### 推荐采集命令
+
+```bash
+# 完整采集 (推荐)
+ncu --set full -o report_name --target-processes all ./kernel
+
+# 指定 sections
+ncu --section SpeedOfLight,Occupancy,LaunchStats -o report_name ./kernel
+
+# 特定指标
+ncu --metrics sm__throughput.avg.pct,dram__throughput.avg.pct -o report_name ./kernel
+```
+
+### 报告操作
+
+```bash
+# 查看摘要
+ncu --import report.ncu-rep --print-summary per-kernel
+
+# 查看详情
+ncu --import report.ncu-rep --page details
+
+# 导出 CSV
+ncu --import report.ncu-rep --page raw --csv > metrics.csv
+
+# 对比两个报告
+ncu --diff report1.ncu-rep report2.ncu-rep
+```
+
+---
+
+## ⚠️ 常见误区
+
+1. **高 Throughput ≠ 高效率**
+   - Compute + Memory Throughput 都很高但 Roofline 很低 = GPU 在"忙碌地等待"
+
+2. **DRAM Throughput 低可能是好事**
+   - 优化后 DRAM 降低说明数据在缓存中复用
+
+3. **Occupancy 不是越高越好**
+   - 目标是最小足够 occupancy 隐藏延迟
+
+4. **NCU 采集时间 ≠ 真实时间**
+   - ncu 会多次重放 kernel，采集时间会大幅膨胀
+   - 测真实性能用 cudaEvent / nsys
+
+5. **不要过度优化 Stall Reasons**
+   - 只有当调度器无法每周期发射时才关注 stall
+   - Issue Slot 利用率已高时，stall 可能是正常调度行为
+
+---
+
+## 🔗 相关资源
+
+- 自动化脚本: `optimizer.py`, `strategy_library.py`
+- 示例报告: 见项目 `examples/` 目录
+- NVIDIA 官方文档: https://docs.nvidia.com/nsight-compute/
+
+---
+
+*本 Skill 支持完整的自动化 NCU 性能分析工作流，包含全量采集、智能诊断和优化建议*

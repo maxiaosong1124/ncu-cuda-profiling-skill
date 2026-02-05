@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-NCU CUDA Optimizer - Rlpha-loop Style Optimization Engine
-支持交互式和全自动两种优化模式
+NCU CUDA Optimizer v2 - Enhanced with Comprehensive Metrics
+支持交互式和全自动两种优化模式，包含完整的 NCU 指标解析
 """
 
 import os
@@ -54,19 +54,57 @@ class OptimizationState:
 
 
 class NCUProfiler:
-    """NCU 性能分析器 - 支持采集和导入已有报告"""
+    """NCU 性能分析器 - 支持全量指标采集和解析"""
 
     def __init__(self, ncu_path: str = "ncu"):
         self.ncu_path = ncu_path
-        # 定义指标名称映射 (使用子字符串匹配)
+        # 扩展的指标名称映射 (使用子字符串匹配)
+        # 按照分析优先级排序
         self.metrics_map = {
+            # === Speed Of Light Throughput (首要) ===
             "gpu_time": "gpu__time_duration.avg",
+            "memory_throughput": "gpu__memory_throughput.avg.pct",
             "dram_throughput": "gpu__dram_throughput.avg.pct",
+            "sm_throughput": "sm__throughput.avg.pct",
             "l1tex_throughput": "l1tex__throughput.avg.pct",
-            "sm_busy": "sm__throughput.avg.pct",
-            "sm_occupancy": "sm__occupancy.avg.pct",
+            "l2_throughput": "lts__throughput.avg.pct",
+            
+            # === Compute Workload Analysis ===
+            "sm_busy": "sm__cycles_active.avg.pct",
+            "issue_slots_busy": "smsp__issue_active.avg.pct",
+            "executed_ipc_active": "smsp__ipc.avg",
+            
+            # === Memory Workload Analysis ===
             "l1_hit_rate": "l1tex__t_sector_hit_rate.pct",
+            "l2_hit_rate": "lts__t_sector_hit_rate.pct",
+            "mem_busy": "gpu__mem_busy.avg.pct",
+            
+            # === Occupancy ===
+            "occupancy": "sm__occupancy.avg.pct",
+            "theoretical_occupancy": "sm__theoretical_occupancy.avg.pct",
+            
+            # === Scheduler Statistics ===
+            "active_warps": "smsp__warps_active.avg",
+            "eligible_warps": "smsp__warps_eligible.avg",
+            "issued_warps": "smsp__issue_warps.avg",
+            "no_eligible": "smsp__warps_no_eligible.avg.pct",
+            
+            # === Warp State Statistics (Stall Reasons) ===
+            "stall_wait": "smsp__warp_issue_stalled_wait.avg.pct",
+            "stall_barrier": "smsp__warp_issue_stalled_barrier.avg.pct",
+            "stall_memory_dependency": "smsp__warp_issue_stalled_memory_dependency.avg.pct",
+            "stall_execution_dependency": "smsp__warp_issue_stalled_execution_dependency.avg.pct",
+            "stall_memory_throttle": "smsp__warp_issue_stalled_memory_throttle.avg.pct",
+            "stall_instruction_fetch": "smsp__warp_issue_stalled_inst_fetch.avg.pct",
+            "stall_texture": "smsp__warp_issue_stalled_texture.avg.pct",
+            "stall_constant": "smsp__warp_issue_stalled_constant_memory_dependency.avg.pct",
+            "stall_not_selected": "smsp__warp_issue_stalled_not_selected.avg.pct",
+            
+            # === Launch Statistics ===
             "registers_per_thread": "launch__registers_per_thread",
+            "shared_memory_per_block": "launch__shared_mem_configured_size",
+            "block_size": "launch__block_size",
+            "grid_size": "launch__grid_size",
         }
 
     def profile_from_report(self, report_path: str) -> Tuple[bool, Dict[str, float]]:
@@ -175,7 +213,17 @@ class NCUProfiler:
             print(f"CSV 导出失败: {e}")
 
     def _parse_metrics(self, csv_path: str) -> Dict[str, float]:
-        """解析 NCU CSV 报告提取关键指标"""
+        """
+        解析 NCU CSV 报告提取关键指标
+        
+        支持全量指标解析，包括：
+        - Speed Of Light Throughput
+        - Compute Workload Analysis
+        - Memory Workload Analysis
+        - Occupancy
+        - Scheduler Statistics
+        - Warp State Statistics
+        """
         metrics = {}
 
         if not os.path.exists(csv_path):
@@ -201,7 +249,7 @@ class NCUProfiler:
 
                 row = dict(zip(header, row_data))
 
-                # 提取关键指标 (使用子字符串匹配，因为NCU列名可能有前缀)
+                # 提取关键指标 (使用子字符串匹配)
                 for key, metric_pattern in self.metrics_map.items():
                     # 查找匹配的列
                     for col_name, col_value in row.items():
@@ -234,6 +282,51 @@ class NCUProfiler:
             print(f"解析指标失败: {e}")
 
         return metrics
+
+    def print_metrics_summary(self, metrics: Dict[str, float]):
+        """打印指标摘要（用于调试）"""
+        print("\n" + "="*60)
+        print("NCU Metrics Summary")
+        print("="*60)
+        
+        # Speed Of Light
+        print("\n📊 Speed Of Light Throughput:")
+        for key in ['memory_throughput', 'dram_throughput', 'sm_throughput', 
+                    'l1tex_throughput', 'l2_throughput']:
+            if key in metrics:
+                print(f"  {key}: {metrics[key]:.2f}%")
+        
+        # Compute
+        print("\n🔢 Compute Workload:")
+        for key in ['sm_busy', 'issue_slots_busy', 'executed_ipc_active']:
+            if key in metrics:
+                print(f"  {key}: {metrics[key]:.2f}")
+        
+        # Memory
+        print("\n💾 Memory Workload:")
+        for key in ['l1_hit_rate', 'l2_hit_rate', 'mem_busy']:
+            if key in metrics:
+                print(f"  {key}: {metrics[key]:.2f}%")
+        
+        # Occupancy
+        print("\n📈 Occupancy:")
+        for key in ['occupancy', 'theoretical_occupancy']:
+            if key in metrics:
+                print(f"  {key}: {metrics[key]:.2f}%")
+        
+        # Scheduler
+        print("\n⚡ Scheduler Stats:")
+        for key in ['active_warps', 'eligible_warps', 'no_eligible']:
+            if key in metrics:
+                print(f"  {key}: {metrics[key]:.2f}")
+        
+        # Stall Reasons
+        print("\n⏸️  Warp Stall Reasons:")
+        stall_keys = [k for k in metrics.keys() if k.startswith('stall_')]
+        for key in sorted(stall_keys):
+            print(f"  {key}: {metrics[key]:.2f}%")
+        
+        print("="*60 + "\n")
 
 
 class CodeModifier:
@@ -276,6 +369,8 @@ class CodeModifier:
             return self._apply_register_opt(code, params)
         elif strategy_name == "warp_primitives":
             return self._apply_warp_primitives(code, params)
+        elif strategy_name == "double_buffering":
+            return self._apply_double_buffering(code, params)
         else:
             # 通用策略：在 kernel 开头插入优化代码
             return self._insert_at_kernel_start(code, optimization_code)
@@ -287,7 +382,6 @@ class CodeModifier:
         params: Dict
     ) -> Tuple[bool, str]:
         """应用 Block Tiling 优化"""
-        # 查找主循环并在之前插入共享内存声明
         lines = code.split('\n')
         modified = []
         inserted = False
@@ -348,8 +442,6 @@ class CodeModifier:
         params: Dict
     ) -> Tuple[bool, str]:
         """应用 Vectorized Load 优化"""
-        # 简单替换：将连续的4个 float 加载替换为 float4
-        # 这是一个简化版本，实际实现需要更复杂的分析
         modified = code
 
         # 添加 float4 类型定义（如果不存在）
@@ -419,6 +511,41 @@ class CodeModifier:
 
         return True, '\n'.join(modified)
 
+    def _apply_double_buffering(
+        self,
+        code: str,
+        params: Dict
+    ) -> Tuple[bool, str]:
+        """应用 Double Buffering 优化"""
+        # 简化实现：在 kernel 开头添加双缓冲声明
+        bm = params.get('bm', 32)
+        bn = params.get('bn', 32)
+        bk = params.get('bk', 8)
+
+        lines = code.split('\n')
+        modified = []
+        inserted = False
+
+        for i, line in enumerate(lines):
+            if '__global__' in line and 'void' in line and not inserted:
+                modified.append(line)
+                j = i + 1
+                while j < len(lines) and '{' not in lines[j]:
+                    modified.append(lines[j])
+                    j += 1
+                if j < len(lines):
+                    modified.append(lines[j])
+                    modified.append(f'    // Double Buffering Optimization')
+                    modified.append(f'    __shared__ float As[2][{bm}][{bk}];')
+                    modified.append(f'    __shared__ float Bs[2][{bk}][{bn}];')
+                    modified.append(f'    int compute_stage = 0, load_stage = 0;')
+                    inserted = True
+                    i = j
+            else:
+                modified.append(line)
+
+        return inserted, '\n'.join(modified)
+
     def _insert_at_kernel_start(
         self,
         code: str,
@@ -483,7 +610,7 @@ class CUDAOptimizer:
             分析结果字典
         """
         print(f"{'='*60}")
-        print("NCU CUDA Profiler - Analysis Mode")
+        print("NCU CUDA Profiler - Analysis Mode (v2 Enhanced)")
         print(f"{'='*60}")
         print(f"Source: {self.source_file}")
         print()
@@ -501,6 +628,9 @@ class CUDAOptimizer:
 
         if not success:
             return {"success": False, "error": "Failed to profile"}
+
+        # 打印完整指标摘要
+        self.ncu_profiler.print_metrics_summary(metrics)
 
         # 诊断瓶颈
         bottleneck = self.strategy_library.diagnose_bottleneck(metrics)
@@ -534,7 +664,7 @@ class CUDAOptimizer:
             分析结果字典
         """
         print(f"{'='*60}")
-        print("NCU CUDA Profiler - Import Mode")
+        print("NCU CUDA Profiler - Import Mode (v2 Enhanced)")
         print(f"{'='*60}")
         print(f"Report: {report_path}")
         print()
@@ -544,6 +674,9 @@ class CUDAOptimizer:
 
         if not success:
             return {"success": False, "error": "Failed to import report"}
+
+        # 打印完整指标摘要
+        self.ncu_profiler.print_metrics_summary(metrics)
 
         # 诊断瓶颈
         bottleneck = self.strategy_library.diagnose_bottleneck(metrics)
@@ -590,9 +723,9 @@ class CUDAOptimizer:
         bottleneck: 'BottleneckType',
         recommendations: List
     ) -> str:
-        """生成分析报告 (v1 风格)"""
+        """生成分析报告 (v2 增强版)"""
         report_lines = [
-            "# NCU 性能分析报告",
+            "# NCU 性能分析报告 (v2)",
             "",
             f"**分析时间**: {datetime.now().isoformat()}",
             f"**源文件**: {self.source_file}",
@@ -603,17 +736,82 @@ class CUDAOptimizer:
             f"|------|------|",
             f"| **主要瓶颈** | {bottleneck.value} |",
             f"| **GPU 执行时间** | {metrics.get('gpu_time', 'N/A')} μs |",
-            f"| **DRAM 吞吐量** | {metrics.get('dram_throughput', 'N/A'):.1f}% |",
-            f"| **SM 利用率** | {metrics.get('sm_busy', 0):.1f}% |",
+        ]
+        
+        # Speed Of Light Throughput
+        report_lines.extend([
             "",
-            "## 关键指标",
+            "## Speed Of Light Throughput",
+            "",
+            "| 指标 | 数值 | 状态 |",
+            "|------|------|------|",
+        ])
+        for key in ['memory_throughput', 'dram_throughput', 'sm_throughput', 'l1tex_throughput']:
+            if key in metrics:
+                val = metrics[key]
+                status = "⚠️" if val > 80 else "✅"
+                report_lines.append(f"| {key} | {val:.2f}% | {status} |")
+        
+        # Compute Workload
+        report_lines.extend([
+            "",
+            "## Compute Workload",
             "",
             "| 指标 | 数值 |",
             "|------|------|",
-        ]
+        ])
+        for key in ['sm_busy', 'issue_slots_busy', 'executed_ipc_active']:
+            if key in metrics:
+                report_lines.append(f"| {key} | {metrics[key]:.2f} |")
+        
+        # Memory Workload
+        report_lines.extend([
+            "",
+            "## Memory Workload",
+            "",
+            "| 指标 | 数值 |",
+            "|------|------|",
+        ])
+        for key in ['l1_hit_rate', 'l2_hit_rate']:
+            if key in metrics:
+                report_lines.append(f"| {key} | {metrics[key]:.2f}% |")
+        
+        # Occupancy
+        report_lines.extend([
+            "",
+            "## Occupancy",
+            "",
+            "| 指标 | 数值 |",
+            "|------|------|",
+        ])
+        for key in ['occupancy', 'theoretical_occupancy']:
+            if key in metrics:
+                report_lines.append(f"| {key} | {metrics[key]:.2f}% |")
+        
+        # Warp Stall Reasons
+        stall_keys = [k for k in metrics.keys() if k.startswith('stall_')]
+        if stall_keys:
+            report_lines.extend([
+                "",
+                "## Warp Stall Reasons",
+                "",
+                "| 指标 | 数值 |",
+                "|------|------|",
+            ])
+            for key in sorted(stall_keys):
+                report_lines.append(f"| {key} | {metrics[key]:.2f}% |")
+        
+        # 关键指标汇总
+        report_lines.extend([
+            "",
+            "## 关键指标汇总",
+            "",
+            "| 指标 | 数值 |",
+            "|------|------|",
+        ])
 
         for key, value in metrics.items():
-            if not key.endswith('_unit'):
+            if not key.endswith('_unit') and not key.startswith('stall_'):
                 if isinstance(value, float):
                     report_lines.append(f"| {key} | {value:.2f} |")
                 else:
@@ -647,7 +845,7 @@ class CUDAOptimizer:
             优化结果字典
         """
         print(f"{'='*60}")
-        print(f"NCU CUDA Optimizer - {self.mode.upper()} Mode")
+        print(f"NCU CUDA Optimizer v2 - {self.mode.upper()} Mode")
         print(f"{'='*60}")
         print(f"Source: {self.source_file}")
         print(f"Work Directory: {self.work_dir}")
@@ -709,7 +907,8 @@ class CUDAOptimizer:
             print("Failed to profile baseline")
             return False
 
-        print(f"Baseline metrics: {json.dumps(metrics, indent=2)}")
+        # 打印指标摘要
+        self.ncu_profiler.print_metrics_summary(metrics)
 
         self.state = OptimizationState(
             project_dir=str(self.work_dir),
@@ -941,9 +1140,9 @@ class CUDAOptimizer:
             # 加速比 = 旧时间 / 新时间 (时间越短越好)
             return old_time / new_time
 
-        # 回退到 roofline_ratio
-        new_perf = new_metrics.get('roofline_ratio', 0)
-        old_perf = old_metrics.get('roofline_ratio', 0)
+        # 回退到 sm_busy 作为性能指标
+        new_perf = new_metrics.get('sm_busy', 0)
+        old_perf = old_metrics.get('sm_busy', 0)
 
         if old_perf == 0:
             return 1.0
@@ -984,7 +1183,7 @@ class CUDAOptimizer:
 
         # 生成 Markdown 报告
         report_lines = [
-            "# NCU CUDA 自动优化报告",
+            "# NCU CUDA 自动优化报告 (v2)",
             "",
             f"**优化时间**: {datetime.now().isoformat()}",
             f"**源文件**: {self.source_file}",
@@ -994,7 +1193,8 @@ class CUDAOptimizer:
             "## 优化概览",
             "",
             f"- **初始执行时间**: {self._format_time(self.state.baseline_metrics.get('gpu_time', 0))}",
-            f"- **初始 Roofline**: {self.state.baseline_metrics.get('roofline_ratio', 0):.1f}%",
+            f"- **初始 SM Busy**: {self.state.baseline_metrics.get('sm_busy', 0):.1f}%",
+            f"- **初始 Memory Throughput**: {self.state.baseline_metrics.get('memory_throughput', 0):.1f}%",
         ]
 
         if self.state.versions:
@@ -1002,7 +1202,7 @@ class CUDAOptimizer:
             best_speedup = self._get_best_speedup()
             report_lines.extend([
                 f"- **最终执行时间**: {self._format_time(best_metrics.get('gpu_time', 0))}",
-                f"- **最终 Roofline**: {best_metrics.get('roofline_ratio', 0):.1f}%",
+                f"- **最终 SM Busy**: {best_metrics.get('sm_busy', 0):.1f}%",
                 f"- **总加速比**: {best_speedup:.2f}x (以执行时间为准)",
                 f"- **最佳版本**: {self.state.best_version_id}",
                 f"- **收敛状态**: {'已收敛' if self.state.converged else '未收敛'}",
@@ -1015,24 +1215,24 @@ class CUDAOptimizer:
             "",
             "## 优化历程",
             "",
-            "| 版本 | 策略 | 执行时间 | Roofline | 相对Baseline | 相对上一轮 | 状态 |",
-            "|------|------|----------|----------|--------------|------------|------|",
+            "| 版本 | 策略 | 执行时间 | SM Busy | 相对Baseline | 相对上一轮 | 状态 |",
+            "|------|------|----------|---------|--------------|------------|------|",
         ])
 
         # Baseline
-        baseline_roof = self.state.baseline_metrics.get('roofline_ratio', 0)
+        baseline_sm = self.state.baseline_metrics.get('sm_busy', 0)
         baseline_time = self.state.baseline_metrics.get('gpu_time', 0)
         report_lines.append(
-            f"| baseline | - | {self._format_time(baseline_time)} | {baseline_roof:.1f}% | 1.00x | - | ✅ |"
+            f"| baseline | - | {self._format_time(baseline_time)} | {baseline_sm:.1f}% | 1.00x | - | ✅ |"
         )
 
         # 每个版本
         for v in self.state.versions:
-            roof = v.metrics.get('roofline_ratio', 0)
+            sm = v.metrics.get('sm_busy', 0)
             time = v.metrics.get('gpu_time', 0)
             status = "✅" if v.build_success else "❌"
             report_lines.append(
-                f"| {v.version_id} | {v.strategy_name} | {self._format_time(time)} | {roof:.1f}% | "
+                f"| {v.version_id} | {v.strategy_name} | {self._format_time(time)} | {sm:.1f}% | "
                 f"{v.speedup_vs_baseline:.2f}x | {v.speedup_vs_previous:.2f}x | {status} |"
             )
 
@@ -1055,7 +1255,8 @@ class CUDAOptimizer:
             ])
 
             for key, value in v.metrics.items():
-                report_lines.append(f"- {key}: {value:.2f}")
+                if isinstance(value, float):
+                    report_lines.append(f"- {key}: {value:.2f}")
 
             report_lines.append("")
 
@@ -1165,6 +1366,9 @@ def main():
             recommendations = library.get_strategies_for_bottleneck(
                 bottleneck, metrics
             )
+
+            # 打印指标摘要
+            profiler.print_metrics_summary(metrics)
 
             print(f"\n{'='*60}")
             print("NCU Analysis Report (Imported)")
