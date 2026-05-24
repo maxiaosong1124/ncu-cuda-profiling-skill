@@ -13,6 +13,14 @@
 
 ---
 
+## 🌐 在线试用（无需安装）
+
+想先看 `ncu-cuda-profiling` 跑起来是什么样、再决定要不要本地装一套 CUDA / NCU 环境？可以直接点下面的入口在线试用，上传 `.ncu-rep` 报告或贴出 kernel 瓶颈描述，就能看到 `auto_diagnose` 决策树输出的瓶颈类型和优化建议。推理成本由平台承担，无需 API key：
+
+[![试用 ncu-cuda-profiling-skill on Socialistic](https://socialistic.ai/api/embed/ncu-cuda-profiling-skill-916848)](https://socialistic.ai/zh/skill/ncu-cuda-profiling-skill-916848?utm_source=github&utm_medium=readme&utm_campaign=20260524-copywriting-doctor-skills&utm_content=badge)
+
+---
+
 ## ✨ 核心能力
 
 安装本 Skill 后，你的 AI 助手将能够：
